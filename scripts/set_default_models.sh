@@ -30,12 +30,12 @@ declare -A defaultEnvVars=(
     [AZURE_AI_EMBED_MODEL_VERSION]="1"
     [AZURE_AI_EMBED_DEPLOYMENT_SKU]="Standard"
     [AZURE_AI_EMBED_DEPLOYMENT_CAPACITY]="50"
-    [AZURE_AI_AGENT_DEPLOYMENT_NAME]="gpt-4o-mini"
-    [AZURE_AI_AGENT_MODEL_NAME]="gpt-4o-mini"
-    [AZURE_AI_AGENT_MODEL_VERSION]="2024-07-18"
-    [AZURE_AI_AGENT_MODEL_FORMAT]="OpenAI"
-    [AZURE_AI_AGENT_DEPLOYMENT_SKU]="GlobalStandard"
-    [AZURE_AI_AGENT_DEPLOYMENT_CAPACITY]="80"
+    [AZURE_AI_CHAT_DEPLOYMENT_NAME]="gpt-4o-mini"
+    [AZURE_AI_CHAT_MODEL_NAME]="gpt-4o-mini"
+    [AZURE_AI_CHAT_MODEL_VERSION]="2024-07-18"
+    [AZURE_AI_CHAT_MODEL_FORMAT]="OpenAI"
+    [AZURE_AI_CHAT_DEPLOYMENT_SKU]="GlobalStandard"
+    [AZURE_AI_CHAT_DEPLOYMENT_CAPACITY]="80"
 )
 
 # --- Set Env Vars and azd env ---
@@ -57,13 +57,13 @@ if [ -n "$resourceId" ]; then
 fi
 
 # --- Build Chat Deployment ---
-chatDeployment_name="${envVars[AZURE_AI_AGENT_DEPLOYMENT_NAME]}"
-chatDeployment_model_name="${envVars[AZURE_AI_AGENT_MODEL_NAME]}"
-chatDeployment_model_version="${envVars[AZURE_AI_AGENT_MODEL_VERSION]}"
-chatDeployment_model_format="${envVars[AZURE_AI_AGENT_MODEL_FORMAT]}"
-chatDeployment_sku_name="${envVars[AZURE_AI_AGENT_DEPLOYMENT_SKU]}"
-chatDeployment_capacity="${envVars[AZURE_AI_AGENT_DEPLOYMENT_CAPACITY]}"
-chatDeployment_capacity_env="AZURE_AI_AGENT_DEPLOYMENT_CAPACITY"
+chatDeployment_name="${envVars[AZURE_AI_CHAT_DEPLOYMENT_NAME]}"
+chatDeployment_model_name="${envVars[AZURE_AI_CHAT_MODEL_NAME]}"
+chatDeployment_model_version="${envVars[AZURE_AI_CHAT_MODEL_VERSION]}"
+chatDeployment_model_format="${envVars[AZURE_AI_CHAT_MODEL_FORMAT]}"
+chatDeployment_sku_name="${envVars[AZURE_AI_CHAT_DEPLOYMENT_SKU]}"
+chatDeployment_capacity="${envVars[AZURE_AI_CHAT_DEPLOYMENT_CAPACITY]}"
+chatDeployment_capacity_env="AZURE_AI_CHAT_DEPLOYMENT_CAPACITY"
 
 aiModelDeployments=(
     "$chatDeployment_name|$chatDeployment_model_name|$chatDeployment_model_version|$chatDeployment_model_format|$chatDeployment_sku_name|$chatDeployment_capacity|$chatDeployment_capacity_env"

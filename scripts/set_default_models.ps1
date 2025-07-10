@@ -25,12 +25,12 @@ $defaultEnvVars = @{
     AZURE_AI_EMBED_MODEL_VERSION = '1'
     AZURE_AI_EMBED_DEPLOYMENT_SKU = 'Standard'
     AZURE_AI_EMBED_DEPLOYMENT_CAPACITY = '50'
-    AZURE_AI_AGENT_DEPLOYMENT_NAME = 'gpt-4o-mini'
-    AZURE_AI_AGENT_MODEL_NAME = 'gpt-4o-mini'
-    AZURE_AI_AGENT_MODEL_VERSION = '2024-07-18'
-    AZURE_AI_AGENT_MODEL_FORMAT = 'OpenAI'
-    AZURE_AI_AGENT_DEPLOYMENT_SKU = 'GlobalStandard'
-    AZURE_AI_AGENT_DEPLOYMENT_CAPACITY = '80'
+    AZURE_AI_CHAT_DEPLOYMENT_NAME = 'gpt-4o-mini'
+    AZURE_AI_CHAT_MODEL_NAME = 'gpt-4o-mini'
+    AZURE_AI_CHAT_MODEL_VERSION = '2024-07-18'
+    AZURE_AI_CHAT_MODEL_FORMAT = 'OpenAI'
+    AZURE_AI_CHAT_DEPLOYMENT_SKU = 'GlobalStandard'
+    AZURE_AI_CHAT_DEPLOYMENT_CAPACITY = '80'
 }
 
 $envVars = @{}
@@ -52,17 +52,17 @@ if (-not [string]::IsNullOrEmpty($resourceId)) {
 }
 
 $chatDeployment = @{
-    name = $envVars.AZURE_AI_AGENT_DEPLOYMENT_NAME
+    name = $envVars.AZURE_AI_CHAT_DEPLOYMENT_NAME
     model = @{
-        name = $envVars.AZURE_AI_AGENT_MODEL_NAME
-        version = $envVars.AZURE_AI_AGENT_MODEL_VERSION
-        format = $envVars.AZURE_AI_AGENT_MODEL_FORMAT
+        name = $envVars.AZURE_AI_CHAT_MODEL_NAME
+        version = $envVars.AZURE_AI_CHAT_MODEL_VERSION
+        format = $envVars.AZURE_AI_CHAT_MODEL_FORMAT
     }
     sku = @{
-        name = $envVars.AZURE_AI_AGENT_DEPLOYMENT_SKU
-        capacity = $envVars.AZURE_AI_AGENT_DEPLOYMENT_CAPACITY
+        name = $envVars.AZURE_AI_CHAT_DEPLOYMENT_SKU
+        capacity = $envVars.AZURE_AI_CHAT_DEPLOYMENT_CAPACITY
     } 
-    capacity_env_var_name = 'AZURE_AI_AGENT_DEPLOYMENT_CAPACITY'
+    capacity_env_var_name = 'AZURE_AI_CHAT_DEPLOYMENT_CAPACITY'
 }
 
 
@@ -95,13 +95,6 @@ az account set --subscription $SubscriptionId
 Write-Host "🎯 Active Subscription: $(az account show --query '[name, id]' --output tsv)"
 
 $QuotaAvailable = $true
-
-try {
-    Write-Host "🔍 Validating model deployments against quotas..."
-} catch {
-    Write-Error "❌ ERROR: Failed to validate model deployments. Ensure you have the necessary permissions."
-    exit 1
-}
 
 foreach ($deployment in $aiModelDeployments) {
     $name = $deployment.name

@@ -1,40 +1,33 @@
 
-# Getting Started with Agents Using Azure AI Foundry: Deployment customization
+# Azure AI Foundry Starter Template: Deployment customization
 
-This document describes how to customize the deployment of the Agents Chat with Azure AI Foundry. Once you follow the steps here, you can run `azd up` as described in the [Deploying](./../README.md#deploying-steps) steps.
+This document describes how to customize the deployment of the Azure AI Foundry Starter Template. Once you follow the steps here, you can run `azd up` as described in the [Deploying](./../README.md#deploying-steps) steps.
 
-* [Use existing resources](#use-existing-resources)
-* [Enabling and disabling resources provision](#enabling-and-disabling-resources-provision)
+* [Disabling resources](#disabling-resources)
 * [Customizing resource names](#customizing-resource-names)
 * [Customizing model deployments](#customizing-model-deployments)
 
-## Use existing resources
-Be default, this template provisions a new resource group along with other resources.   If you already have provisioned Azure AI Foundry and Azure AI Foundry Project, you might reuse these resources by setting:
+## Disabling resources
 
-```shell
-azd env set AZURE_EXISTING_AIPROJECT_RESOURCE_ID "https://<your-ai-services-account-name>.services.ai.azure.com/api/projects/<your-project-name>"
-```
-
-Notices that Application Insight and AI Search will not be created in this scenario.
-
-
-## Enabling and disabling resources provision
-
-By default, provisioning Application Insights is enabled, and AI Search is disabled.  The default setting can be changed by:
-
-* To enable AI Search, run `azd env set USE_AZURE_AI_SEARCH_SERVICE true`
+* To disable AI Search, run `azd env set USE_SEARCH_SERVICE false`
 * To disable Application Insights, run `azd env set USE_APPLICATION_INSIGHTS false`
+* To disable Container Registry, run `azd env set USE_CONTAINER_REGISTRY false`
 
-Once you disable these resources, they will not be deployed when you run `azd up`.
+Then run `azd up` to deploy the remaining resources.
 
 ## Customizing resource names
 
-By default, this template will use a naming convention with unique strings to prevent naming collisions within Azure.
-To override default naming conventions, the following keys can be set:
+By default this template will use a default naming convention to prevent naming collisions within Azure.
+To override default naming conventions the following can be set.
 
-* `AZURE_AIPROJECT_NAME` - The name of the Azure AI Foundry project
-* `AZURE_AISERVICES_NAME` - The name of the Azure AI Foundry
+* `AZURE_EXISTING_AIPROJECT_CONNECTION_STRING` - An existing connection string to be use.   If specified, resources for AI Foundry Hub,  AI Foundry Project, and Azure AI service will not be created.
+* `AZURE_AIHUB_NAME` - The name of the AI Foundry Hub resource
+* `AZURE_AIPROJECT_NAME` - The name of the AI Foundry Project
+* `AZURE_AISERVICES_NAME` - The name of the Azure AI service
+* `AZURE_SEARCH_SERVICE_NAME` - The name of the Azure Search service
 * `AZURE_STORAGE_ACCOUNT_NAME` - The name of the Storage Account
+* `AZURE_KEYVAULT_NAME` - The name of the Key Vault
+* `AZURE_CONTAINER_REGISTRY_NAME` - The name of the container registry
 * `AZURE_APPLICATION_INSIGHTS_NAME` - The name of the Application Insights instance
 * `AZURE_LOG_ANALYTICS_WORKSPACE_NAME` - The name of the Log Analytics workspace used by Application Insights
 
@@ -42,44 +35,48 @@ To override any of those resource names, run `azd env set <key> <value>` before 
 
 ## Customizing model deployments
 
-For more information on the Azure OpenAI models and non-Microsoft models that can be used in your deployment, view the [list of models supported by Azure AI Agent Service](https://learn.microsoft.com/azure/ai-services/agents/concepts/model-region-support).
-
 To customize the model deployments, you can set the following environment variables:
 
 ### Using a different chat model
 
-Change the agent model format (either OpenAI or Microsoft):
+Change the chat deployment name:
 
 ```shell
-azd env set AZURE_AI_AGENT_MODEL_FORMAT Microsoft
+azd env set AZURE_AI_CHAT_DEPLOYMENT_NAME Phi-3.5-MoE-instruct
 ```
 
-Change the agent model name:
+Change the chat model format (either OpenAI or Microsoft):
 
 ```shell
-azd env set AZURE_AI_AGENT_MODEL_NAME gpt-4o-mini
+azd env set AZURE_AI_CHAT_MODEL_FORMAT Microsoft
 ```
 
-Set the version of the agent model:
+Change the chat model name:
 
 ```shell
-azd env set AZURE_AI_AGENT_MODEL_VERSION 2024-07-18
+azd env set AZURE_AI_CHAT_MODEL_NAME Phi-3.5-MoE-instruct
+```
+
+Set the version of the chat model:
+
+```shell
+azd env set AZURE_AI_CHAT_MODEL_VERSION 2
 ```
 
 ### Setting models, capacity, and deployment SKU
 
-By default, this template sets the agent model deployment capacity to 80,000 tokens per minute. For AI Search, the embedding model requires a capacity of 50,000 tokens per minute. Due to current Bicep limitations, only the chat model quota is validated when you select a location during `azd up`. If you want to change these defaults, set the desired region using `azd env set AZURE_LOCATION <region>` (for example, `eastus`) to bypass quota validation. Follow the instructions below to update the model settings before running `azd up`.
+By default, this template sets the chat model deployment capacity to 80,000 tokens per minute. For AI Search, the embedding model requires a capacity of 50,000 tokens per minute. Due to current Bicep limitations, only the chat model quota is validated when you select a location during `azd up`. If you want to change these defaults, set the desired region using `azd env set AZURE_LOCATION <region>` (for example, `eastus`) to bypass quota validation. Follow the instructions below to update the model settings before running `azd up`.
 
-Change the default capacity (in thousands of tokens per minute) of the agent deployment:
+Change the default capacity (in thousands of tokens per minute) of the chat deployment:
 
 ```shell
-azd env set AZURE_AI_AGENT_DEPLOYMENT_CAPACITY 50
+azd env set AZURE_AI_CHAT_DEPLOYMENT_CAPACITY 50
 ```
 
-Change the SKU of the agent deployment:
+Change the SKU of the chat deployment:
 
 ```shell
-azd env set AZURE_AI_AGENT_DEPLOYMENT_SKU Standard
+azd env set AZURE_AI_CHAT_DEPLOYMENT_SKU Standard
 ```
 
 Change the default capacity (in thousands of tokens per minute) of the embeddings deployment:
@@ -92,3 +89,16 @@ Change the SKU of the embeddings deployment:
 
 ```shell
 azd env set AZURE_AI_EMBED_DEPLOYMENT_SKU Standard
+```
+
+## Bringing an existing AI project resource
+
+If you have an existing AI project resource, you can bring it into the Azure AI Foundry Starter Template by setting the following environment variable:
+
+```shell
+azd env set AZURE_EXISTING_AIPROJECT_CONNECTION_STRING "<connection-string>"
+```
+
+You can find the connection string on the overview page of your Azure AI project.
+
+If you do not have a deployment named "gpt-4o-mini" in your existing AI project, you should either create one in Azure AI Foundry or follow the steps in [Customizing model deployments](#customizing-model-deployments) to specify a different model.

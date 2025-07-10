@@ -5,14 +5,11 @@ param tags object = {}
 param identityName string
 param containerAppsEnvironmentName string
 param azureExistingAIProjectResourceId string
-param agentDeploymentName string
-param searchConnectionName string
+param chatDeploymentName string
 param embeddingDeploymentName string
 param aiSearchIndexName string
 param embeddingDeploymentDimensions string
 param searchServiceEndpoint string
-param agentName string
-param agentID string
 param projectName string
 param enableAzureMonitorTracing bool
 param azureTracingGenAIContentRecordingEnabled bool
@@ -33,16 +30,8 @@ var env = [
     value: azureExistingAIProjectResourceId
   }
   {
-    name: 'AZURE_AI_AGENT_NAME'
-    value: agentName
-  }
-  {
-    name: 'AZURE_EXISTING_AGENT_ID'
-    value: agentID
-  }
-  {
-    name: 'AZURE_AI_AGENT_DEPLOYMENT_NAME'
-    value: agentDeploymentName
+    name: 'AZURE_AI_CHAT_DEPLOYMENT_NAME'
+    value: chatDeploymentName
   }
   {
     name: 'AZURE_AI_EMBED_DEPLOYMENT_NAME'
@@ -61,10 +50,6 @@ var env = [
     value: 'true'
   }
   {
-    name: 'AZURE_AI_SEARCH_CONNECTION_NAME'
-    value: searchConnectionName
-  }
-  {
     name: 'AZURE_AI_SEARCH_ENDPOINT'
     value: searchServiceEndpoint
   }
@@ -81,7 +66,6 @@ var env = [
     value: projectEndpoint
   }
 ]
-
 
 
 module app 'core/host/container-app-upsert.bicep' = {

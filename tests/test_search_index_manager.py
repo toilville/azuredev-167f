@@ -4,19 +4,17 @@
 import csv
 import json
 import os
-import tempfile
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from azure.identity.aio import DefaultAzureCredential
 
+from util import ChatRequest, Message
 from search_index_manager import SearchIndexManager
 from azure.ai.projects.aio import AIProjectClient
-from azure.ai.projects.models._enums import ConnectionType
-from azure.core.exceptions import HttpResponseError
-
+from azure.core.exceptions import ResourceNotFoundError, HttpResponseError
+import tempfile
 from ddt import ddt, data
 
-connection_string = os.environ.get("AZURE_EXISTING_AIPROJECT_CONNECTION_STRING") if os.environ.get("AZURE_EXISTING_AIPROJECT_CONNECTION_STRING") else os.environ.get("AZURE_AIPROJECT_CONNECTION_STRING")
 
 class MockAsyncIterator:
 
@@ -34,13 +32,10 @@ class TestSearchIndexManager(unittest.IsolatedAsyncioTestCase):
     """Tests for the RAG helper."""
 
     INPUT_DIR = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'files')
-    # INPUT_DIR = os.path.join(
-    #     os.path.dirname(
-    #         os.path.dirname(
-    #             os.path.dirname(os.path.dirname(__file__)))), 'data_')
-    EMBEDDINGS_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                                   'data', 'embeddings.csv')
+        os.path.dirname(
+            os.path.dirname(
+                os.path.dirname(os.path.dirname(__file__)))), 'data_')
+    EMBEDDINGS_FILE = os.path.join(INPUT_DIR, 'embeddings.csv')
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -49,9 +44,84 @@ class TestSearchIndexManager(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.search_endpoint = os.environ["SEARCH_ENDPOINT"]
         self.index_name = "test_index"
-        self.embed_key = os.environ['EMBED_API_KEY']
-        self.model = "text-embedding-3-small"
         unittest.TestCase.setUp(self)
+
+    async def test_index_exist_mock(self):
+        """Test index exists check."""
+        mock_ix_client = AsyncMock()
+        mock_aenter = AsyncMock()
+        with patch('search_index_manager.SearchIndexClient',
+                   return_value=mock_ix_client):
+            mock_ix_client.__aenter__.return_value = mock_aenter
+            exists = await SearchIndexManager.index_exists(
+                self.search_endpoint, AsyncMock(), self.index_name)
+            self.assertTrue(exists)
+            mock_aenter.get_index.side_effect = ResourceNotFoundError("Mock")
+            exists = await SearchIndexManager.index_exists(
+                self.search_endpoint, AsyncMock(), self.index_name)
+            self.assertFalse(exists)
+
+    async def test_get_or_create_mock(self):
+        """Test index_name creation."""
+        mock_ix_client = AsyncMock()
+        mock_aenter = AsyncMock()
+        with patch('search_index_manager.SearchIndexClient',
+                   return_value=mock_ix_client):
+            mock_ix_client.__aenter__.return_value = mock_aenter
+            mock_aenter.get_index.side_effect = ResourceNotFoundError("Mock")
+            await SearchIndexManager.get_or_create_index(
+                endpoint=self.search_endpoint,
+                credential=AsyncMock(),
+                index_name=self.index_name,
+                dimensions=100)
+            mock_aenter.create_index.assert_called_once()
+            mock_aenter.create_index.reset_mock()
+            mock_aenter.get_index.assert_called_once()
+            mock_aenter.get_index.reset_mock()
+            mock_aenter.get_index.side_effect = Mock()
+            await SearchIndexManager.get_or_create_index(
+                endpoint=self.search_endpoint,
+                credential=AsyncMock(),
+                index_name=self.index_name,
+                dimensions=100500)
+            mock_aenter.get_index.assert_called_once()
+            mock_aenter.create_index.assert_not_called()
+
+    async def test_create_index_or_false_mock(self):
+        mock_ix_client = AsyncMock()
+        mock_aenter = AsyncMock()
+        with patch('search_index_manager.SearchIndexClient',
+                   return_value=mock_ix_client):
+            mock_ix_client.__aenter__.return_value = mock_aenter
+            rag = self._get_mock_rag(AsyncMock())
+            result = await rag.create_index(100)
+            self.assertTrue(result)
+            mock_aenter.create_index.side_effect = HttpResponseError("Mock")
+            result = await rag.create_index(100)
+            self.assertFalse(result)
+            mock_aenter.create_index.side_effect = ValueError("Mock")
+            with self.assertRaisesRegex(ValueError, "Mock"):
+                await rag.create_index(100)
+
+    async def test_no_index_exception(self):
+        """Test that attempt to search without index causes the exception."""
+        rag = self._get_mock_rag(AsyncMock())
+        with self.assertRaisesRegex(
+                ValueError,
+                "Unable to perform the operation as the index is absent.+"):
+            await rag.delete_index()
+        with self.assertRaisesRegex(
+                ValueError,
+                "Unable to perform the operation as the index is absent.+"):
+            await rag.upload_documents("test.csv")
+        with self.assertRaisesRegex(
+                ValueError,
+                "Unable to perform the operation as the index is absent.+"):
+            await rag.search(ChatRequest(messages=[Message(content='test')]))
+        with self.assertRaisesRegex(
+                ValueError,
+                "Unable to perform the operation as the index is absent.+"):
+            await rag.is_index_empty()
 
     async def test_create_delete_mock(self):
         """Test that if index is deleteed the appropriate error is raised."""
@@ -62,29 +132,72 @@ class TestSearchIndexManager(unittest.IsolatedAsyncioTestCase):
                 return_value=mock_ix_client):
             mock_ix_client.__aenter__.return_value = mock_aenter
             rag = self._get_mock_rag(AsyncMock())
-            self.assertTrue(await rag.create_index())
-            mock_aenter.create_index.assert_called_once()
-            mock_aenter.get_index.assert_not_called()
-            mock_aenter.create_index.reset_mock()
-            mock_aenter.create_index.side_effect = HttpResponseError(
-                'Mock http error')
-            self.assertFalse(await rag.create_index())
-            mock_aenter.create_index.assert_called_once()
+            await rag.ensure_index_created()
             mock_aenter.get_index.assert_called_once()
-            with self.assertRaisesRegex(HttpResponseError, 'Mock http error'):
-                await rag.create_index(raise_on_error=True)
+            mock_aenter.get_index.reset_mock()
+            await rag.ensure_index_created()
+            mock_aenter.get_index.assert_not_called()
             await rag.delete_index()
-            mock_aenter.create_index.side_effect = ValueError(
-                'Mock value error')
-            with self.assertRaisesRegex(ValueError, 'Mock value error'):
-                await rag.create_index()
-
             mock_aenter.delete_index.assert_called_once()
             with self.assertRaisesRegex(
                     ValueError,
-                    "Unable to perform the operation "
-                    "as the index is absent.+"):
+                    "Unable to perform the operation as the index is absent.+"):
                 await rag.delete_index()
+
+    async def test_life_cycle_mock(self):
+        """Test create, upload, search and delete"""
+        mock_ix_client = AsyncMock()
+        mock_aenter = AsyncMock()
+        mock_serch_client = AsyncMock()
+        mock_serch_client.search.return_value = MockAsyncIterator([
+            {'token': 'a'},
+            {'token': 'b'}
+        ])
+        mock_embedding = AsyncMock()
+        mock_embedding.embed.return_value = {
+            'data': [{'embedding': 42.}]
+        }
+        with patch(
+            'search_index_manager.SearchIndexClient',
+                return_value=mock_ix_client):
+            with patch(
+                'search_index_manager.SearchClient',
+                    return_value=mock_serch_client):
+                mock_ix_client.__aenter__.return_value = mock_aenter
+                rag = self._get_mock_rag(mock_embedding)
+                await rag.ensure_index_created()
+
+                # Upload documents.
+                await rag.upload_documents(TestSearchIndexManager.EMBEDDINGS_FILE)
+                mock_serch_client.upload_documents.assert_called_once()
+
+                message = ChatRequest(messages=[Message(content='test')])
+                search_result = await rag.search(message)
+                mock_embedding.embed.assert_called_once()
+                mock_serch_client.search.assert_called_once()
+                self.assertEqual(search_result, "a\n------\nb")
+
+    async def test_is_empty_mock(self):
+        """Test how we check if the index is empty."""
+        mock_ix_client = AsyncMock()
+        mock_aenter = AsyncMock()
+        mock_serch_client = AsyncMock()
+
+        with patch(
+            'search_index_manager.SearchIndexClient',
+                return_value=mock_ix_client):
+            with patch(
+                'search_index_manager.SearchClient',
+                    return_value=mock_serch_client):
+                mock_ix_client.__aenter__.return_value = mock_aenter
+                mock_serch_client.get_document_count.return_value = 42
+                rag = self._get_mock_rag(AsyncMock())
+                await rag.ensure_index_created()
+                is_empty = await rag.is_index_empty()
+                self.assertFalse(is_empty)
+                mock_serch_client.get_document_count.return_value = 0
+                is_empty = await rag.is_index_empty()
+                self.assertTrue(is_empty)
 
     async def test_exception_no_dinmensions(self):
         """Test the exception shown if no dimensions were provided."""
@@ -93,35 +206,26 @@ class TestSearchIndexManager(unittest.IsolatedAsyncioTestCase):
             credential=AsyncMock(),
             index_name=self.index_name,
             dimensions=None,
-            model=self.model,
-            deployment_name="mock_embedding_model",
-            embedding_endpoint="",
-            embedding_client=AsyncMock(),
-            embed_api_key=self.embed_key,
+            model="mock_embedding_model",
+            embeddings_client=AsyncMock()
         )
-        with self.assertRaisesRegex(
-          ValueError, "No embedding dimensions were provided.+"):
-            await rag.create_index(vector_index_dimensions=None)
+        with self.assertRaisesRegex(ValueError, "No embedding dimensions were provided.+"):
+            await rag.ensure_index_created(vector_index_dimensions=None)
 
-    async def test_exception_different_dimmensions(self):
-        """Test the exception shown if dimensions
-        and dinensions_override are different."""
+    async def test_exception_different_dinmensions(self):
+        """Test the exception shown if dimensions and dinensions_override are different."""
         rag = SearchIndexManager(
             endpoint=self.search_endpoint,
             credential=AsyncMock(),
             index_name=self.index_name,
             dimensions=41,
-            model=self.model,
-            embedding_client=AsyncMock(),
-            deployment_name=self.model,
-            embedding_endpoint=self.search_endpoint,
-            embed_api_key=self.embed_key,
+            model="mock_embedding_model",
+            embeddings_client=AsyncMock()
         )
         with self.assertRaisesRegex(
                 ValueError,
-                "vector_index_dimensions is different "
-                "from dimensions provided to constructor."):
-            await rag.create_index(vector_index_dimensions=42)
+                "vector_index_dimensions is different from dimensions provided to constructor."):
+            await rag.ensure_index_created(vector_index_dimensions=42)
 
     @unittest.skip("Only for live tests.")
     async def test_e2e(self):
@@ -129,73 +233,34 @@ class TestSearchIndexManager(unittest.IsolatedAsyncioTestCase):
         async with DefaultAzureCredential() as creds:
             async with AIProjectClient.from_connection_string(
                 credential=creds,
-                conn_str=connection_string,
+                conn_str=os.environ["AZURE_AIPROJECT_CONNECTION_STRING"],
             ) as project:
-                aoai_connection = await project.connections.get_default(
-                    connection_type=ConnectionType.AZURE_OPEN_AI,
-                    include_credentials=True)
-                self.assertIsNotNone(aoai_connection)
-                rag = SearchIndexManager(
-                    endpoint=self.search_endpoint,
-                    credential=creds,
-                    index_name=self.index_name,
-                    dimensions=100,
-                    model=self.model,
-                    deployment_name=self.model,
-                    embedding_endpoint=aoai_connection.endpoint_url,
-                    embed_api_key=aoai_connection.key,
-                )
-                self.assertTrue(await rag.create_index(raise_on_error=True))
-                await rag.upload_documents(
-                    os.path.join(
-                        os.path.dirname(
-                            os.path.dirname(
-                                __file__)), 'data', 'embeddings.csv'))
+                async with (await project.inference.get_embeddings_client()) as embed:
+                    rag = SearchIndexManager(
+                        endpoint=self.search_endpoint,
+                        credential=creds,
+                        index_name=self.index_name,
+                        dimensions=100,
+                        model="text-embedding-3-small",
+                        embeddings_client=embed,
+                    )
+                    await rag.ensure_index_created()
+                    await rag.upload_documents(TestSearchIndexManager.EMBEDDINGS_FILE)
 
-                result = await rag.search(
-                    "What is the temperature rating "
-                    "of the cozynights sleeping bag?")
-                result_semantic = await rag.semantic_search(
-                    "What is the temperature rating "
-                    "of the cozynights sleeping bag?")
-                await rag.delete_index()
-                await rag.close()
-                self.assertTrue(bool(result), "The regular search is empty.")
-                self.assertTrue(bool(result_semantic), "The semantic search is empty.")
-
-    async def test_life_cycle_mock(self):
-        """Test create, upload, search and delete"""
-        mock_ix_client = AsyncMock()
-        mock_aenter = AsyncMock()
-        mock_serch_client = AsyncMock()
-        mock_serch_client.search.return_value = MockAsyncIterator([
-            {'token': 'a', 'title': 'a.txt'},
-            {'token': 'b', 'title': 'b.txt'}
-        ])
-        with patch(
-            'search_index_manager.SearchIndexClient',
-                return_value=mock_ix_client):
-            with patch(
-                'search_index_manager.SearchClient',
-                    return_value=mock_serch_client):
-                mock_ix_client.__aenter__.return_value = mock_aenter
-                rag = self._get_mock_rag(AsyncMock())
-                self.assertTrue(await rag.create_index())
-
-                # Upload documents.
-                await rag.upload_documents(
-                    TestSearchIndexManager.EMBEDDINGS_FILE)
-                mock_serch_client.upload_documents.assert_called_once()
-
-                search_result = await rag.search('test')
-                mock_serch_client.search.assert_called_once()
-                self.assertEqual(search_result,
-                                 "a, source: a.txt\n------\nb, source: b.txt")
+                    result = await rag.search(
+                        ChatRequest(
+                            messages=[
+                                Message(content="What is the temperature rating of the cozynights sleeping bag?")
+                            ]
+                        )
+                    )
+                    await rag.delete_index()
+                    await rag.close()
+                    self.assertTrue(bool(result))
 
     @data(2, 4)
     async def test_build_embeddings_file_mock(self, sentences_per_embedding):
-        """Use this test to build
-        the new embeddings file in the data directory."""
+        """Use this test to build the new embeddings file in the data directory."""
         embedding_client = AsyncMock()
         embedding_client.embed.retun_value = {'data': [[0, 0], [1, 1], [
             2, 2]] if sentences_per_embedding == 4 else [[0, 0], [1, 1]]}
@@ -204,11 +269,8 @@ class TestSearchIndexManager(unittest.IsolatedAsyncioTestCase):
             credential=AsyncMock(),
             index_name=self.index_name,
             dimensions=2,
-            model=self.model,
-            deployment_name=self.model,
-            embedding_endpoint=self.search_endpoint,
-            embed_api_key=self.embed_key,
-            embedding_client=embedding_client
+            model="text-embedding-3-small",
+            embeddings_client=embedding_client,
         )
         sentences = [
             f"This is {v} sentence" for v in [
@@ -231,60 +293,50 @@ class TestSearchIndexManager(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(
                         ' '.join(
                             sentences[
-                                index * sentences_per_embedding: (
-                                    index + 1) * sentences_per_embedding]))
+                                index * sentences_per_embedding: (index + 1) * sentences_per_embedding]))
                     self.assertListEqual(
                         json.loads(
                             row['embedding']), [
                             index, index])
-                    self.assertEqual(row['document_reference'], 'input.csv')
                     index += 1
 
     @unittest.skip("Only for live tests.")
     async def test_build_embeddings_file(self):
-        """Use this test to build the new
-        embeddings file in the data directory."""
+        """Use this test to build the new embeddings file in the data directory."""
+
         async with DefaultAzureCredential() as creds:
             async with AIProjectClient.from_connection_string(
                 credential=creds,
-                conn_str=connection_string,
+                conn_str=os.environ["AZURE_AIPROJECT_CONNECTION_STRING"],
             ) as project:
-                aoai_connection = await project.connections.get_default(
-                    connection_type=ConnectionType.AZURE_OPEN_AI)
-                self.assertIsNotNone(aoai_connection)
-                async with (
-                  await project.inference.get_embeddings_client()) as embed:
+                async with (await project.inference.get_embeddings_client()) as embed:
                     rag = SearchIndexManager(
                         endpoint=self.search_endpoint,
                         credential=creds,
                         index_name=self.index_name,
                         dimensions=100,
-                        model=self.model,
-                        deployment_name=self.model,
-                        embedding_endpoint=aoai_connection.endpoint_url,
-                        embed_api_key=self.embed_key,
-                        embedding_client=embed
+                        model="text-embedding-3-small",
+                        embeddings_client=embed,
                     )
                     await rag.build_embeddings_file(
                         input_directory=TestSearchIndexManager.INPUT_DIR,
-                        output_file=TestSearchIndexManager.EMBEDDINGS_FILE,
-                        sentences_per_embedding=10
-                    )
+                        output_file=TestSearchIndexManager.EMBEDDINGS_FILE)
 
     @unittest.skip("Only for live tests.")
     async def test_get_or_create(self):
         """Test index_name creation."""
         async with DefaultAzureCredential() as cred:
-            self.AssertTrue(await SearchIndexManager.create_index(
+            # /with patch('SearchIndexManager._get_search_index_client') as mock_ix_client:
+            await SearchIndexManager.get_or_create_index(
                 endpoint=self.search_endpoint,
                 credential=cred,
                 index_name=self.index_name,
-                dimensions=100))
-            self.AssertFalse(await SearchIndexManager.create_index(
+                dimensions=100)
+            await SearchIndexManager.get_or_create_index(
                 endpoint=self.search_endpoint,
                 credential=cred,
                 index_name=self.index_name,
-                dimensions=100500))
+                dimensions=100500)
 
     def _get_mock_rag(self, embedding_client):
         """Return the mock RAG """
@@ -294,12 +346,17 @@ class TestSearchIndexManager(unittest.IsolatedAsyncioTestCase):
             index_name=self.index_name,
             dimensions=100,
             model="mock_embedding_model",
-            deployment_name="mock_embedding_model",
-            embedding_client=embedding_client,
-            embedding_endpoint="",
-            embed_api_key=self.embed_key
-
+            embeddings_client=embedding_client
         )
+
+    # async def asyncTearDown(self)->None:
+    #     async with DefaultAzureCredential() as cred:
+    #         async with SearchIndexClient(endpoint=self.search_endpoint, credential=cred) as ix_client:
+    #             try:
+    #                 await ix_client.delete_index(self.index_name)
+    #             except ResourceNotFoundError:
+    #                 pass
+    #     unittest.TestCase.tearDown(self)
 
 
 if __name__ == "__main__":

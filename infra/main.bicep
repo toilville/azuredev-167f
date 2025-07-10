@@ -5,18 +5,8 @@ targetScope = 'subscription'
 @description('Name of the the environment which is used to generate a short unique hash used in all resources.')
 param environmentName string
 
+@minLength(1)
 @description('Location for all resources')
-// Based on the model, creating an agent is not supported in all regions. 
-// The combination of allowed and usageName below is for AZD to check AI model gpt-4o-mini quota only for the allowed regions for creating an agent.
-// If using different models, update the SKU,capacity depending on the model you use.
-// https://learn.microsoft.com/azure/ai-services/agents/concepts/model-region-support
-@allowed([
-  'eastus'
-  'eastus2'
-  'swedencentral'
-  'westus'
-  'westus3'
-])
 @metadata({
   azd: {
     type: 'location'
@@ -40,8 +30,6 @@ param applicationInsightsName string = ''
 param aiServicesName string = ''
 @description('The Azure Search resource name. If ommited will be generated')
 param searchServiceName string = ''
-@description('The Azure Search connection name. If ommited will use a default value')
-param searchConnectionName string = ''
 @description('The search index name')
 param aiSearchIndexName string = ''
 @description('The Azure Storage Account resource name. If ommited will be generated')
@@ -54,30 +42,24 @@ param principalId string = ''
 // Chat completion model
 @description('Format of the chat model to deploy')
 @allowed(['Microsoft', 'OpenAI'])
-param agentModelFormat string = 'OpenAI'
-@description('Name of agent to deploy')
-param agentName string = 'agent-template-assistant'
-@description('(Deprecated) ID of agent to deploy')
-param aiAgentID string = ''
-@description('ID of the existing agent')
-param azureExistingAgentId string = ''
+param chatModelFormat string = 'OpenAI'
 @description('Name of the chat model to deploy')
-param agentModelName string = 'gpt-4o-mini'
+param chatModelName string = 'gpt-4o-mini'
 @description('Name of the model deployment')
-param agentDeploymentName string = 'gpt-4o-mini'
+param chatDeploymentName string = 'gpt-4o-mini'
 
 @description('Version of the chat model to deploy')
 // See version availability in this table:
 // https://learn.microsoft.com/azure/ai-services/openai/concepts/models#global-standard-model-availability
-param agentModelVersion string = '2024-07-18'
+param chatModelVersion string = '2024-07-18'
 
 @description('Sku of the chat deployment')
-param agentDeploymentSku string = 'GlobalStandard'
+param chatDeploymentSku string = 'GlobalStandard'
 
 @description('Capacity of the chat deployment')
 // You can increase this, but capacity is limited per model/region, so you will get errors if you go over
 // https://learn.microsoft.com/en-us/azure/ai-services/openai/quotas-limits
-param agentDeploymentCapacity int = 30
+param chatDeploymentCapacity int = 30
 
 // Embedding model
 @description('Format of the embedding model to deploy')
@@ -106,7 +88,7 @@ param embedDeploymentSku string = 'Standard'
 param embedDeploymentCapacity int = 30
 
 param useApplicationInsights bool = true
-@description('Do we want to use the Azure AI Search')
+@description('Use the RAG search')
 param useSearchService bool = false
 
 @description('Do we want to use the Azure Monitor tracing')
@@ -123,25 +105,20 @@ param seed string = newGuid()
 var runnerPrincipalType = templateValidationMode? 'ServicePrincipal' : 'User'
 
 var abbrs = loadJsonContent('./abbreviations.json')
-
-var resourceToken = templateValidationMode? toLower(uniqueString(subscription().id, environmentName, location, seed)) :  toLower(uniqueString(subscription().id, environmentName, location))
-
+var resourceToken = templateValidationMode? toLower(uniqueString(subscription().id, environmentName, location, seed)) : toLower(uniqueString(subscription().id, environmentName, location))
 var tags = { 'azd-env-name': environmentName }
-
-var tempAgentID = !empty(aiAgentID) ? aiAgentID : ''
-var agentID = !empty(azureExistingAgentId) ? azureExistingAgentId : tempAgentID
 
 var aiChatModel = [
   {
-    name: agentDeploymentName
+    name: chatDeploymentName
     model: {
-      format: agentModelFormat
-      name: agentModelName
-      version: agentModelVersion
+      format: chatModelFormat
+      name: chatModelName
+      version: chatModelVersion
     }
     sku: {
-      name: agentDeploymentSku
-      capacity: agentDeploymentCapacity
+      name: chatDeploymentSku
+      capacity: chatDeploymentCapacity
     }
   }
 ]
@@ -163,7 +140,6 @@ var aiEmbeddingModel = [
 var aiDeployments = concat(
   aiChatModel,
   useSearchService ? aiEmbeddingModel : [])
-
 
 // Organize resources in a resource group
 resource rg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
@@ -201,7 +177,8 @@ module ai 'core/host/ai-environment.bicep' = if (empty(azureExistingAIProjectRes
       : !empty(applicationInsightsName) ? applicationInsightsName : '${abbrs.insightsComponents}${resourceToken}'
     searchServiceName: resolvedSearchServiceName
     appInsightConnectionName: 'appinsights-connection'
-    aoaiConnectionName: 'aoai-connection'
+    runnerPrincipalId: principalId
+    runnerPrincipalType: runnerPrincipalType
   }
 }
 
@@ -285,14 +262,11 @@ module api 'api.bicep' = {
     identityName: '${abbrs.managedIdentityUserAssignedIdentities}api-${resourceToken}'
     containerAppsEnvironmentName: containerApps.outputs.environmentName
     azureExistingAIProjectResourceId: projectResourceId
-    agentDeploymentName: agentDeploymentName
-    searchConnectionName: searchConnectionName
+    chatDeploymentName: chatDeploymentName
     aiSearchIndexName: aiSearchIndexName
     searchServiceEndpoint: searchServiceEndpoint
     embeddingDeploymentName: embeddingDeploymentName
     embeddingDeploymentDimensions: embeddingDeploymentDimensions
-    agentName: agentName
-    agentID: agentID
     projectName: aiProjectName
     enableAzureMonitorTracing: enableAzureMonitorTracing
     azureTracingGenAIContentRecordingEnabled: azureTracingGenAIContentRecordingEnabled
@@ -428,14 +402,11 @@ output AZURE_RESOURCE_GROUP string = rg.name
 // Outputs required for local development server
 output AZURE_TENANT_ID string = tenant().tenantId
 output AZURE_EXISTING_AIPROJECT_RESOURCE_ID string = projectResourceId
-output AZURE_AI_AGENT_DEPLOYMENT_NAME string = agentDeploymentName
-output AZURE_AI_SEARCH_CONNECTION_NAME string = searchConnectionName
+output AZURE_AI_CHAT_DEPLOYMENT_NAME string = chatDeploymentName
 output AZURE_AI_EMBED_DEPLOYMENT_NAME string = embeddingDeploymentName
 output AZURE_AI_SEARCH_INDEX_NAME string = aiSearchIndexName
 output AZURE_AI_SEARCH_ENDPOINT string = searchServiceEndpoint
 output AZURE_AI_EMBED_DIMENSIONS string = embeddingDeploymentDimensions
-output AZURE_AI_AGENT_NAME string = agentName
-output AZURE_EXISTING_AGENT_ID string = agentID
 output AZURE_EXISTING_AIPROJECT_ENDPOINT string = projectEndpoint
 output ENABLE_AZURE_MONITOR_TRACING bool = enableAzureMonitorTracing
 output AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED bool = azureTracingGenAIContentRecordingEnabled
@@ -446,4 +417,3 @@ output SERVICE_API_IDENTITY_PRINCIPAL_ID string = api.outputs.SERVICE_API_IDENTI
 output SERVICE_API_NAME string = api.outputs.SERVICE_API_NAME
 output SERVICE_API_URI string = api.outputs.SERVICE_API_URI
 output SERVICE_API_ENDPOINTS array = ['${api.outputs.SERVICE_API_URI}']
-output SEARCH_CONNECTION_ID string = ''

@@ -61,7 +61,6 @@ param targetPort int = 80
 
 param projectName string
 
-
 module app 'container-app.bicep' = {
   name: '${deployment().name}-update'
   params: {

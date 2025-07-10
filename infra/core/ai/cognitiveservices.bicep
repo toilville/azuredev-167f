@@ -10,7 +10,6 @@ param deployments array = []
 param appInsightsId string
 param appInsightConnectionString string
 param appInsightConnectionName string
-param aoaiConnectionName string
 param storageAccountId string
 param storageAccountConnectionName string
 
@@ -45,22 +44,6 @@ resource account 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
     disableLocalAuth: disableLocalAuth 
   }
 }
-
-resource aiServiceConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
-  name: aoaiConnectionName
-  parent: account
-  properties: {
-    category: 'AzureOpenAI'
-    authType: 'AAD'
-    isSharedToAll: true
-    target: account.properties.endpoints['OpenAI Language Model Instance API']
-    metadata: {
-      ApiType: 'azure'
-      ResourceId: account.id
-    }
-  }
-}
-
 
 // Creates the Azure Foundry connection to your Azure App Insights resource
 resource appInsightConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = {
@@ -106,8 +89,8 @@ resource aiProject 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-pre
     type: 'SystemAssigned'
   }
   properties: {
-    description: aiProjectName
-    displayName: aiProjectName
+    description: 'AI Project'
+    displayName: 'AI Project'
   }
 }
 

@@ -21,4 +21,3 @@ module containerAppsEnvironment 'container-apps-environment.bicep' = {
 output defaultDomain string = containerAppsEnvironment.outputs.defaultDomain
 output environmentName string = containerAppsEnvironment.outputs.name
 output environmentId string = containerAppsEnvironment.outputs.id
-

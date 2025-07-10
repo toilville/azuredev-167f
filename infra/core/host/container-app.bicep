@@ -118,7 +118,7 @@ resource app 'Microsoft.App/containerApps@2023-05-02-preview' = {
       serviceBinds: !empty(serviceBinds) ? serviceBinds : null
       containers: [
         {
-          image: 'azdtemplate.azurecr.io/get-start-with-ai-agents:latest'
+          image: 'azdtemplate.azurecr.io/get-start-with-ai-chat:latest'
           name: containerName
           env: env
           resources: {
@@ -130,6 +130,7 @@ resource app 'Microsoft.App/containerApps@2023-05-02-preview' = {
       scale: {
         minReplicas: containerMinReplicas
         maxReplicas: containerMaxReplicas
+
       }
     }
   }

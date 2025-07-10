@@ -21,5 +21,5 @@ resource role 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
   dependsOn: [
     resourceGroup() // Explicitly declare dependency on the resource group
-]
+  ]  
 }

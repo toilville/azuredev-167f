@@ -1,92 +1,93 @@
 # Copyright (c) Microsoft. All rights reserved.
-# Licensed under the MIT license. See LICENSE.md file in the project root for full license information.
-
+# Licensed under the MIT license.
+# See LICENSE file in the project root for full license information.
 import contextlib
+import logging
 import os
-
-from azure.ai.projects.aio import AIProjectClient
-from azure.identity import DefaultAzureCredential
+from typing import Union
 
 import fastapi
-from fastapi.staticfiles import StaticFiles
-from fastapi import Request
-from fastapi.responses import JSONResponse
+from azure.ai.projects.aio import AIProjectClient
+from azure.identity import AzureDeveloperCliCredential, ManagedIdentityCredential
 from dotenv import load_dotenv
+from fastapi.staticfiles import StaticFiles
 
-from logging_config import configure_logging
+from .search_index_manager import SearchIndexManager
+from .util import get_logger
 
-enable_trace = False
 logger = None
+enable_trace = False
 
 @contextlib.asynccontextmanager
 async def lifespan(app: fastapi.FastAPI):
-    agent = None
+    azure_credential: Union[AzureDeveloperCliCredential, ManagedIdentityCredential]
+    if not os.getenv("RUNNING_IN_PRODUCTION"):
+        if tenant_id := os.getenv("AZURE_TENANT_ID"):
+            logger.info("Using AzureDeveloperCliCredential with tenant_id %s", tenant_id)
+            azure_credential = AzureDeveloperCliCredential(tenant_id=tenant_id)
+        else:
+            logger.info("Using AzureDeveloperCliCredential")
+            azure_credential = AzureDeveloperCliCredential()
+    else:
+        # User-assigned identity was created and set in api.bicep
+        user_identity_client_id = os.getenv("AZURE_CLIENT_ID")
+        logger.info("Using ManagedIdentityCredential with client_id %s", user_identity_client_id)
+        azure_credential = ManagedIdentityCredential(client_id=user_identity_client_id)
 
-    proj_endpoint = os.environ.get("AZURE_EXISTING_AIPROJECT_ENDPOINT")
-    agent_id = os.environ.get("AZURE_EXISTING_AGENT_ID")
-    try:
-        ai_project = AIProjectClient(
-            credential=DefaultAzureCredential(exclude_shared_token_cache_credential=True),
-            endpoint=proj_endpoint,
-            api_version = "2025-05-15-preview" # Evaluations yet not supported on stable (api_version="2025-05-01")
-        )
-        logger.info("Created AIProjectClient")
+    project = AIProjectClient(
+        credential=azure_credential,
+        endpoint=os.environ["AZURE_EXISTING_AIPROJECT_ENDPOINT"],
+    )
 
-        if enable_trace:
-            application_insights_connection_string = ""
-            try:
-                application_insights_connection_string = await ai_project.telemetry.get_connection_string()
-            except Exception as e:
-                e_string = str(e)
-                logger.error("Failed to get Application Insights connection string, error: %s", e_string)
-            if not application_insights_connection_string:
-                logger.error("Application Insights was not enabled for this project.")
-                logger.error("Enable it via the 'Tracing' tab in your AI Foundry project page.")
-                exit()
-            else:
-                from azure.monitor.opentelemetry import configure_azure_monitor
-                configure_azure_monitor(connection_string=application_insights_connection_string)
-                app.state.application_insights_connection_string = application_insights_connection_string
-                logger.info("Configured Application Insights for tracing.")
-
-        if agent_id:
-            try: 
-                agent = await ai_project.agents.get_agent(agent_id)
-                logger.info("Agent already exists, skipping creation")
-                logger.info(f"Fetched agent, agent ID: {agent.id}")
-                logger.info(f"Fetched agent, model name: {agent.model}")
-            except Exception as e:
-                logger.error(f"Error fetching agent: {e}", exc_info=True)
-
-        if not agent:
-            # Fallback to searching by name
-            agent_name = os.environ["AZURE_AI_AGENT_NAME"]
-            agent_list = ai_project.agents.list_agents()
-            if agent_list:
-                async for agent_object in agent_list:
-                    if agent_object.name == agent_name:
-                        agent = agent_object
-                        logger.info(f"Found agent by name '{agent_name}', ID={agent_object.id}")
-                        break
-
-        if not agent:
-            raise RuntimeError("No agent found. Ensure qunicorn.py created one or set AZURE_EXISTING_AGENT_ID.")
-
-        app.state.ai_project = ai_project
-        app.state.agent = agent
-        
-        yield
-
-    except Exception as e:
-        logger.error(f"Error during startup: {e}", exc_info=True)
-        raise RuntimeError(f"Error during startup: {e}")
-
-    finally:
+    if enable_trace:
+        application_insights_connection_string = ""
         try:
-            await ai_project.close()
-            logger.info("Closed AIProjectClient")
+            application_insights_connection_string = await project.telemetry.get_connection_string()
         except Exception as e:
-            logger.error("Error closing AIProjectClient", exc_info=True)
+            e_string = str(e)
+            logger.error("Failed to get Application Insights connection string, error: %s", e_string)
+        if not application_insights_connection_string:
+            logger.error("Application Insights was not enabled for this project.")
+            logger.error("Enable it via the 'Tracing' tab in your AI Foundry project page.")
+            exit()
+        else:
+            from azure.monitor.opentelemetry import configure_azure_monitor
+            configure_azure_monitor(connection_string=application_insights_connection_string)
+
+    chat = project.inference.get_chat_completions_client()
+    embed = project.inference.get_embeddings_client()
+
+    endpoint = os.environ.get('AZURE_AI_SEARCH_ENDPOINT')
+    search_index_manager = None
+    embed_dimensions = None
+    if os.getenv('AZURE_AI_EMBED_DIMENSIONS'):
+        embed_dimensions = int(os.getenv('AZURE_AI_EMBED_DIMENSIONS'))
+        
+    if endpoint and os.getenv('AZURE_AI_SEARCH_INDEX_NAME') and os.getenv('AZURE_AI_EMBED_DEPLOYMENT_NAME'):
+        search_index_manager = SearchIndexManager(
+            endpoint = endpoint,
+            credential = azure_credential,
+            index_name = os.getenv('AZURE_AI_SEARCH_INDEX_NAME'),
+            dimensions = embed_dimensions,
+            model = os.getenv('AZURE_AI_EMBED_DEPLOYMENT_NAME'),
+            embeddings_client=embed
+        )
+        # Create index and upload the documents only if index does not exist.
+        logger.info(f"Creating index {os.getenv('AZURE_AI_SEARCH_INDEX_NAME')}.")
+        await search_index_manager.ensure_index_created(
+            vector_index_dimensions=embed_dimensions if embed_dimensions else 100)
+    else:
+        logger.info("The RAG search will not be used.")
+
+    app.state.chat = chat
+    app.state.search_index_manager = search_index_manager
+    app.state.chat_model = os.environ["AZURE_AI_CHAT_DEPLOYMENT_NAME"]
+    yield
+
+    await project.close()
+    await chat.close()
+    if search_index_manager is not None:
+        await search_index_manager.close()
 
 
 def create_app():
@@ -94,7 +95,12 @@ def create_app():
         load_dotenv(override=True)
 
     global logger
-    logger = configure_logging(os.getenv("APP_LOG_FILE", ""))
+    logger = get_logger(
+        name="azureaiapp",
+        log_level=logging.INFO,
+        log_file_name = os.getenv("APP_LOG_FILE"),
+        log_to_console=True
+    )
 
     enable_trace_string = os.getenv("ENABLE_AZURE_MONITOR_TRACING", "")
     global enable_trace
@@ -114,25 +120,11 @@ def create_app():
     else:
         logger.info("Tracing is not enabled")
 
-    directory = os.path.join(os.path.dirname(__file__), "static")
     app = fastapi.FastAPI(lifespan=lifespan)
-    app.mount("/static", StaticFiles(directory=directory), name="static")
-    
-    # Mount React static files
-    # Uncomment the following lines if you have a React frontend
-    # react_directory = os.path.join(os.path.dirname(__file__), "static/react")
-    # app.mount("/static/react", StaticFiles(directory=react_directory), name="react")
+    app.mount("/static", StaticFiles(directory="api/static"), name="static")
 
-    from . import routes  # Import routes
+    from . import routes  # noqa
+
     app.include_router(routes.router)
 
-    # Global exception handler for any unhandled exceptions
-    @app.exception_handler(Exception)
-    async def global_exception_handler(request: Request, exc: Exception):
-        logger.error("Unhandled exception occurred", exc_info=exc)
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "Internal server error"}
-        )
-    
     return app

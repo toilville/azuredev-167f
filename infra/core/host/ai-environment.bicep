@@ -19,7 +19,9 @@ param searchServiceName string = ''
 @description('The Application Insights connection name.')
 param appInsightConnectionName string
 param tags object = {}
-param aoaiConnectionName string
+param runnerPrincipalId string
+param runnerPrincipalType string
+
 module storageAccount '../storage/storage-account.bicep' = {
   name: 'storageAccount'
   params: {
@@ -92,12 +94,11 @@ module cognitiveServices '../ai/cognitiveservices.bicep' = {
     appInsightConnectionString: applicationInsights.outputs.connectionString
     storageAccountId: storageAccount.outputs.id
     storageAccountConnectionName: storageAccount.outputs.name
-    aoaiConnectionName: aoaiConnectionName
   }
 }
 
-module accountStorageRoleAssignment  '../../core/security/role.bicep' = {
-  name: 'ai-account-role-storage-contributor'
+module backendStorageBlobDataContributorRoleAssignment  '../../core/security/role.bicep' = {
+  name: 'backend-role-storage-blob-data-contributor'
   params: {
     principalType: 'ServicePrincipal'
     principalId: cognitiveServices.outputs.accountPrincipalId
@@ -105,11 +106,11 @@ module accountStorageRoleAssignment  '../../core/security/role.bicep' = {
   }
 }
 
-module projectStorageRoleAssignment  '../../core/security/role.bicep' = {
-  name: 'ai-project-role-storage-contributor'
+module userStorageBlobDataContributorRoleAssignment  '../../core/security/role.bicep' = {
+  name: 'user-role-storage-blob-data-contributor'
   params: {
-    principalType: 'ServicePrincipal'
-    principalId: cognitiveServices.outputs.projectPrincipalId
+    principalType: runnerPrincipalType
+    principalId: runnerPrincipalId
     roleDefinitionId: 'ba92f5b4-2d11-453d-a403-e96b0029c9fe' // Storage Blob Data Contributor
   }
 }
@@ -124,8 +125,6 @@ module searchService '../search/search-services.bicep' =
       name: searchServiceName
       semanticSearch: 'free'
       authOptions: { aadOrApiKey: { aadAuthFailureMode: 'http401WithBearerChallenge'}}
-      projectName: cognitiveServices.outputs.projectName
-      serviceName: cognitiveServices.outputs.serviceName
     }
   }
 
@@ -141,6 +140,7 @@ output logAnalyticsWorkspaceName string = !empty(logAnalyticsName) ? logAnalytic
 
 output aiServiceId string = cognitiveServices.outputs.id
 output aiServicesName string = cognitiveServices.outputs.name
+output aiServiceEndpoint string = cognitiveServices.outputs.endpoints['OpenAI Language Model Instance API']
 output aiProjectEndpoint string = cognitiveServices.outputs.projectEndpoint
 output aiServicePrincipalId string = cognitiveServices.outputs.accountPrincipalId
 
@@ -149,4 +149,3 @@ output searchServiceName string = !empty(searchServiceName) ? searchService.outp
 output searchServiceEndpoint string = !empty(searchServiceName) ? searchService.outputs.endpoint : ''
 
 output projectResourceId string = cognitiveServices.outputs.projectResourceId
-output searchConnectionId string = !empty(searchServiceName) ? searchService.outputs.searchConnectionId : ''
